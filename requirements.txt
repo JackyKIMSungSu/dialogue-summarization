@@ -1,0 +1,29 @@
+# Core ML
+torch>=2.1.0
+transformers[torch]>=4.35.2
+pytorch_lightning>=2.1.2
+peft>=0.7.0
+datasets>=2.16.0
+accelerate>=0.25.0
+
+# Data
+pandas>=2.1.4
+numpy>=1.23.5
+
+# Evaluation
+rouge>=1.0.1
+rouge-score>=0.1.2
+konlpy>=0.6.0          # 한국어 형태소 분석기 (MeCab 등)
+
+# Experiment tracking
+wandb>=0.16.1
+notion-client>=2.2.1
+python-dotenv>=1.0.0   # .env 로드
+
+# Utilities
+tqdm>=4.66.1
+pyyaml>=6.0.1
+
+# Notebook
+jupyter>=1.0.0
+jupyterlab>=4.0.9

@@ -1,0 +1,50 @@
+model:
+  name: "gogamza/kobart-base-v2"
+  max_input_length: 1024   # KoBART max_position_embeddings = 1026
+  max_output_length: 256
+
+training:
+  batch_size: 16
+  eval_batch_size: 32
+  learning_rate: 3e-5
+  num_epochs: 10
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  gradient_accumulation_steps: 1
+  fp16: true
+  seed: 42
+  label_smoothing: 0.1
+
+generation:
+  num_beams: 4
+  length_penalty: 1.0
+  no_repeat_ngram_size: 3
+  max_new_tokens: 256
+
+data:
+  train_path: "data/raw/train.csv"
+  dev_path: "data/raw/dev.csv"
+  test_path: "data/raw/test.csv"
+  sample_submission_path: "data/raw/sample_submission.csv"
+  dialogue_col: "dialogue"
+  summary_col: "summary"
+
+evaluation:
+  rouge_types: ["rouge1", "rouge2", "rougeL"]
+  tokenizer: "mecab"
+
+output:
+  checkpoint_dir: "outputs/checkpoints"
+  prediction_dir: "outputs/predictions"
+  log_dir: "outputs/logs"
+
+wandb:
+  project: "dialogue-summarization"
+  entity: "sskim7415-"
+  name: null
+  tags: ["KoBART", "seq2seq"]
+  resume: "allow"
+
+notion:
+  token: null
+  database_id: null

@@ -1,0 +1,46 @@
+model:
+  name: "facebook/bart-large-cnn"  # 기본 모델, 변경 가능
+  max_input_length: 1024
+  max_output_length: 256
+
+training:
+  batch_size: 8
+  eval_batch_size: 16
+  learning_rate: 5e-5
+  num_epochs: 5
+  warmup_steps: 500
+  weight_decay: 0.01
+  gradient_accumulation_steps: 2
+  fp16: true
+  seed: 42
+
+data:
+  train_path: "data/raw/train.csv"
+  dev_path: "data/raw/dev.csv"
+  test_path: "data/raw/test.csv"
+  sample_submission_path: "data/raw/sample_submission.csv"
+  dialogue_col: "dialogue"
+  summary_col: "summary"
+
+evaluation:
+  rouge_types: ["rouge1", "rouge2", "rougeL"]
+  use_stemmer: false
+  tokenizer: "mecab"  # 한국어 형태소 분석기
+
+output:
+  checkpoint_dir: "outputs/checkpoints"
+  prediction_dir: "outputs/predictions"
+  log_dir: "outputs/logs"
+
+wandb:
+  project: "dialogue-summarization"
+  entity: "sskim7415-"          # wandb 팀/유저명 (null이면 개인 계정)
+  name: null             # run 이름 (null이면 자동 생성)
+  tags: []
+  resume: "allow"
+
+notion:
+  # 환경변수 NOTION_TOKEN, NOTION_DATABASE_ID 사용을 권장
+  # 직접 입력 시 아래 값을 채우세요 (git에 커밋하지 마세요)
+  token: null
+  database_id: null
