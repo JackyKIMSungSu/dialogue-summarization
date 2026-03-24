@@ -54,6 +54,8 @@ class TrainConfig:
     seed: int = 42
     response_only: bool = True         # True: 요약 부분만 loss 계산 (권장)
     max_new_tokens: int = 256          # 추론 시 최대 생성 토큰
+    instruction_part: str = "[대화]\n"  # response_only 시 instruction 마커
+    response_part: str = "[요약]\n"     # response_only 시 response 마커
 
 
 @dataclass
@@ -270,8 +272,8 @@ class DialogueSummarizationTrainer:
             # 요약 부분만 loss 계산
             trainer = train_on_responses_only(
                 trainer,
-                instruction_part="[대화]\n",
-                response_part="[요약]\n",
+                instruction_part=t.instruction_part,
+                response_part=t.response_part,
             )
 
         self.trainer = trainer

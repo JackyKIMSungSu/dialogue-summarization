@@ -1,0 +1,50 @@
+model:
+  name: "google/mt5-base"
+  max_input_length: 512
+  max_output_length: 128
+
+training:
+  batch_size: 32
+  eval_batch_size: 64
+  learning_rate: 5e-4
+  num_epochs: 10
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  gradient_accumulation_steps: 1
+  fp16: true
+  seed: 42
+  label_smoothing: 0.1
+
+generation:
+  num_beams: 4
+  length_penalty: 1.0
+  no_repeat_ngram_size: 3
+  max_new_tokens: 128
+
+data:
+  train_path: "data/raw/train.csv"
+  dev_path: "data/raw/dev.csv"
+  test_path: "data/raw/test.csv"
+  sample_submission_path: "data/raw/sample_submission.csv"
+  dialogue_col: "dialogue"
+  summary_col: "summary"
+
+evaluation:
+  rouge_types: ["rouge1", "rouge2", "rougeL"]
+  tokenizer: "mecab"
+
+output:
+  checkpoint_dir: "outputs/checkpoints"
+  prediction_dir: "outputs/predictions"
+  log_dir: "outputs/logs"
+
+wandb:
+  project: "dialogue-summarization"
+  entity: "sskim7415-"
+  name: null
+  tags: ["mt5", "seq2seq", "multilingual"]
+  resume: "allow"
+
+notion:
+  token: null
+  database_id: null

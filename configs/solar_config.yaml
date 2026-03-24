@@ -1,0 +1,55 @@
+model:
+  name: "upstage/SOLAR-10.7B-Instruct"
+  max_seq_length: 2048
+  load_in_4bit: true
+
+lora:
+  r: 16
+  alpha: 16
+  dropout: 0.0
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+  bias: "none"
+
+training:
+  num_epochs: 3
+  batch_size: 1
+  grad_accum: 16          # 실효 배치 = 16
+  learning_rate: 2e-4
+  lr_scheduler: "cosine"
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  bf16: true
+  seed: 42
+  response_only: true
+  max_new_tokens: 256
+  instruction_part: "### User:\n"
+  response_part: "### Assistant:\n"
+
+data:
+  train_path: "data/raw/train.csv"
+  dev_path: "data/raw/dev.csv"
+  test_path: "data/raw/test.csv"
+  sample_submission_path: "data/raw/sample_submission.csv"
+  dialogue_col: "dialogue"
+  summary_col: "summary"
+
+evaluation:
+  rouge_types: ["rouge1", "rouge2", "rougeL"]
+  tokenizer: "mecab"
+
+output:
+  checkpoint_dir: "outputs/checkpoints"
+  prediction_dir: "outputs/predictions"
+  log_dir: "outputs/logs"
+
+wandb:
+  project: "dialogue-summarization"
+  entity: "sskim7415-"
+  name: null
+  tags: ["SOLAR", "causal-lm", "QLoRA"]
+  resume: "allow"
+
+notion:
+  token: null
+  database_id: null

@@ -339,6 +339,7 @@ class KoBARTTrainer:
                 truncation=True,
                 return_tensors="pt",
             ).to(self.model.device)
+            inputs.pop("token_type_ids", None)
 
             with torch.no_grad():
                 output_ids = self.model.generate(
@@ -372,6 +373,7 @@ class KoBARTTrainer:
                 truncation=True,
                 return_tensors="pt",
             ).to(self.model.device)
+            inputs.pop("token_type_ids", None)
 
             with torch.no_grad():
                 output_ids = self.model.generate(
@@ -421,3 +423,44 @@ class KoBARTTrainer:
             결과_요약=summary,
             상태="완료",
         )
+
+
+# ------------------------------------------------------------------
+# MT5Trainer
+# ------------------------------------------------------------------
+
+class MT5Trainer(KoBARTTrainer):
+    """google/mt5-base 등 mT5 계열 Seq2Seq 학습 트레이너.
+
+    KoBARTTrainer를 상속하며 _tokenize만 오버라이드하여
+    deprecated as_target_tokenizer 대신 text_target API를 사용합니다.
+
+    사용 예시:
+        hp = Seq2SeqHyperParams.from_yaml("configs/mt5_config.yaml")
+        hp.experiment.run_name = "mt5-lr5e4-ep10"
+
+        trainer = MT5Trainer(hp, notion_logger=notion, wandb_logger=wandb)
+        scores = trainer.run(train_df, dev_df)
+    """
+
+    def _tokenize(self, df: pd.DataFrame) -> Dataset:
+        cfg = self.hp.model
+
+        def _encode(batch):
+            model_inputs = self.tokenizer(
+                batch["dialogue"],
+                max_length=cfg.max_input_length,
+                truncation=True,
+                padding=False,
+            )
+            labels = self.tokenizer(
+                text_target=batch["summary"],
+                max_length=cfg.max_output_length,
+                truncation=True,
+                padding=False,
+            )
+            model_inputs["labels"] = labels["input_ids"]
+            return model_inputs
+
+        dataset = Dataset.from_pandas(df[["dialogue", "summary"]].reset_index(drop=True))
+        return dataset.map(_encode, batched=True, remove_columns=["dialogue", "summary"])

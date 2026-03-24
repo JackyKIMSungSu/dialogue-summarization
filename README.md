@@ -152,12 +152,29 @@ gen.save(predictions=predictions, filename="exp01.csv")
 
 ## 모델 선택 가이드
 
-| 모델 | 타입 | VRAM | 특징 |
-|---|---|---|---|
-| `gogamza/kobart-base-v2` | Seq2Seq | ~4GB | 경량, 빠른 실험 |
-| `unsloth/Qwen3-14B` | Causal LM | ~20GB | 베이스라인, 한국어 강함 |
-| `unsloth/Qwen3-8B` | Causal LM | ~12GB | 균형잡힌 선택 |
-| `unsloth/llama-3.1-8b-instruct` | Causal LM | ~12GB | Meta Llama |
+이 프로젝트에서 학습하는 3가지 모델:
+
+| 모델 | 타입 | VRAM | 특징 | Config | Notebook |
+|---|---|---|---|---|---|
+| `gogamza/kobart-base-v2` | Seq2Seq | ~4GB | 경량, 빠른 실험, 한국어 특화 | `kobart_config.yaml` | `03_train_kobart.ipynb` |
+| `google/mt5-base` | Seq2Seq | ~4GB | 다국어 T5, 한국어 지원 | `mt5_config.yaml` | `03_train_mt5.ipynb` |
+| `upstage/SOLAR-10.7B-Instruct` | Causal LM | ~14GB | 고성능 LLM, QLoRA 파인튜닝 | `solar_config.yaml` | `03_train_solar.ipynb` |
+
+### CLI로 학습 실행
+
+```bash
+# KoBART
+python train.py --model kobart --run-name kobart-exp01
+
+# mt5-base
+python train.py --model mt5 --run-name mt5-exp01
+
+# SOLAR-10.7B-Instruct
+python train.py --model solar --run-name solar-exp01
+
+# 하이퍼파라미터 오버라이드
+python train.py --model kobart --run-name kobart-lr1e5 --lr 1e-5 --epochs 5
+```
 
 ---
 
