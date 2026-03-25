@@ -78,6 +78,10 @@ def parse_args():
     parser.add_argument("--no-wandb", action="store_true", help="WandB 로깅 비활성화")
     parser.add_argument("--no-notion", action="store_true", help="Notion 로깅 비활성화")
 
+    # 재개
+    parser.add_argument("--resume-from-checkpoint", default=None, help="재개할 체크포인트 경로")
+    parser.add_argument("--experiment-id", default=None, help="기존 실험 ID (resume 시 출력 디렉토리 유지용)")
+
     return parser.parse_args()
 
 
@@ -255,6 +259,8 @@ def run_solar(args):
         tags=tags,
         output_dir=args.output_dir,
     )
+    if args.experiment_id:
+        exp_cfg.experiment_id = args.experiment_id
 
     hp = HyperParams(model=model_cfg, lora=lora_cfg, train=train_cfg, experiment=exp_cfg)
     hp.summary()
@@ -280,6 +286,7 @@ def run_solar(args):
         prompt_template=SOLAR_PROMPT,
         notion_logger=notion_logger,
         wandb_logger=wandb_logger,
+        resume_from_checkpoint=args.resume_from_checkpoint,
     )
     scores = trainer.run(train_df, dev_df)
 

@@ -243,3 +243,4 @@ outputs/logs/
 data/processed/
 data/external/
 *.png
+logs/
