@@ -131,11 +131,13 @@ class DialogueSummarizationTrainer:
         prompt_template: str | None = None,
         notion_logger=None,
         wandb_logger=None,
+        resume_from_checkpoint: str | None = None,
     ):
         self.hp = hp
         self.prompt_template = prompt_template or _DEFAULT_PROMPT
         self.notion = notion_logger
         self.wandb = wandb_logger
+        self.resume_from_checkpoint = resume_from_checkpoint
 
         self.model = None
         self.tokenizer = None
@@ -189,31 +191,50 @@ class DialogueSummarizationTrainer:
     # ------------------------------------------------------------------
 
     def _load_model(self):
-        from unsloth import FastLanguageModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
         cfg = self.hp.model
         print(f"\n[1/4] 모델 로드: {cfg.model_name}")
-        self.model, self.tokenizer = FastLanguageModel.from_pretrained(
-            model_name=cfg.model_name,
-            max_seq_length=cfg.max_seq_length,
-            load_in_4bit=cfg.load_in_4bit,
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            cfg.model_name, trust_remote_code=True,
         )
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=cfg.load_in_4bit,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        ) if cfg.load_in_4bit else None
+
+        self.model = AutoModelForCausalLM.from_pretrained(
+            cfg.model_name,
+            quantization_config=bnb_config,
+            device_map="auto",
+            trust_remote_code=True,
+        )
+        self.model.config.use_cache = False
         total = sum(p.numel() for p in self.model.parameters())
         print(f"      총 파라미터: {total:,}")
 
     def _apply_lora(self):
-        from unsloth import FastLanguageModel
+        from peft import LoraConfig as PeftLoraConfig, get_peft_model, prepare_model_for_kbit_training
         lora = self.hp.lora
         print(f"\n[2/4] LoRA 적용 (r={lora.r}, alpha={lora.alpha})")
-        self.model = FastLanguageModel.get_peft_model(
-            self.model,
+
+        self.model = prepare_model_for_kbit_training(self.model)
+        self.model.enable_input_require_grads()
+
+        peft_config = PeftLoraConfig(
             r=lora.r,
-            target_modules=lora.target_modules,
             lora_alpha=lora.alpha,
+            target_modules=lora.target_modules,
             lora_dropout=lora.dropout,
             bias=lora.bias,
-            use_gradient_checkpointing="unsloth",
-            random_state=self.hp.train.seed,
+            task_type="CAUSAL_LM",
         )
+        self.model = get_peft_model(self.model, peft_config)
         trainable = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         total = sum(p.numel() for p in self.model.parameters())
         print(f"      학습 파라미터: {trainable:,} / {total:,} ({100*trainable/total:.2f}%)")
@@ -232,17 +253,17 @@ class DialogueSummarizationTrainer:
         return Dataset.from_list(records)
 
     def _train(self, train_dataset):
-        from trl import SFTTrainer, SFTConfig
-        from unsloth import is_bfloat16_supported
-        from unsloth.chat_templates import train_on_responses_only
+        from trl import SFTTrainer
+        from transformers import TrainingArguments, DataCollatorForLanguageModeling
 
         t = self.hp.train
         exp = self.hp.experiment
         output_dir = str(Path(exp.output_dir) / exp.experiment_id)
+        use_bf16 = t.bf16 and torch.cuda.is_bf16_supported()
 
-        print(f"\n[4/4] 학습 시작 (실효 배치={self.hp.effective_batch_size()})")
+        print(f"\n[4/4] 학습 시작 (실효 배치={self.hp.effective_batch_size()}, bf16={use_bf16})")
 
-        sft_config = SFTConfig(
+        training_args = TrainingArguments(
             output_dir=output_dir,
             num_train_epochs=t.num_epochs,
             per_device_train_batch_size=t.batch_size,
@@ -252,39 +273,48 @@ class DialogueSummarizationTrainer:
             warmup_ratio=t.warmup_ratio,
             weight_decay=t.weight_decay,
             max_grad_norm=t.max_grad_norm,
-            bf16=t.bf16 and is_bfloat16_supported(),
-            fp16=not (t.bf16 and is_bfloat16_supported()),
+            bf16=use_bf16,
+            fp16=not use_bf16,
             seed=t.seed,
             logging_steps=10,
             save_strategy="epoch",
             report_to="wandb" if self.wandb else "none",
             run_name=exp.run_name,
+            gradient_checkpointing=True,
+            optim="paged_adamw_8bit",
         )
 
         trainer = SFTTrainer(
             model=self.model,
             tokenizer=self.tokenizer,
             train_dataset=train_dataset,
-            args=sft_config,
+            dataset_text_field="text",
+            max_seq_length=self.hp.model.max_seq_length,
+            args=training_args,
         )
 
         if t.response_only:
-            # 요약 부분만 loss 계산
-            trainer = train_on_responses_only(
-                trainer,
-                instruction_part=t.instruction_part,
-                response_part=t.response_part,
+            # 요약 부분만 loss 계산: response_part 이후 토큰만 loss 적용
+            response_token_ids = self.tokenizer.encode(
+                t.response_part, add_special_tokens=False
+            )
+            instruction_token_ids = self.tokenizer.encode(
+                t.instruction_part, add_special_tokens=False
+            )
+            trainer = _apply_response_only(
+                trainer, instruction_token_ids, response_token_ids
             )
 
         self.trainer = trainer
-        trainer.train()
+        if self.resume_from_checkpoint:
+            print(f"      체크포인트에서 재개: {self.resume_from_checkpoint}")
+        trainer.train(resume_from_checkpoint=self.resume_from_checkpoint or None)
 
     def _evaluate(self, dev_df: pd.DataFrame) -> dict:
-        from unsloth import FastLanguageModel
         from src.utils.rouge_evaluator import RougeEvaluator
 
         print("\n[평가] dev 세트 추론 중...")
-        FastLanguageModel.for_inference(self.model)
+        self.model.eval()
 
         predictions = []
         for dialogue in dev_df["dialogue"]:
@@ -295,6 +325,7 @@ class DialogueSummarizationTrainer:
                     **inputs,
                     max_new_tokens=self.hp.train.max_new_tokens,
                     do_sample=False,
+                    pad_token_id=self.tokenizer.eos_token_id,
                 )
             pred = self.tokenizer.decode(
                 outputs[0][inputs["input_ids"].shape[1]:],
@@ -357,6 +388,44 @@ class DialogueSummarizationTrainer:
             결과_요약=summary,
             상태="완료",
         )
+
+
+# ------------------------------------------------------------------
+# Response-only 학습 헬퍼 (unsloth 없이 구현)
+# ------------------------------------------------------------------
+
+def _apply_response_only(trainer, instruction_ids: list, response_ids: list):
+    """instruction 부분의 loss를 -100으로 마스킹하는 DataCollator를 적용."""
+    import torch
+    from torch.utils.data import DataLoader
+
+    original_collator = trainer.data_collator
+
+    class ResponseOnlyCollator:
+        def __init__(self, base_collator, resp_ids):
+            self.base = base_collator
+            self.resp_ids = resp_ids
+
+        def __call__(self, features):
+            batch = self.base(features)
+            labels = batch["labels"].clone()
+            for i, label_row in enumerate(labels):
+                # response_part 토큰 시작 위치 이후만 loss 유지
+                resp_start = None
+                ids = label_row.tolist()
+                for j in range(len(ids) - len(self.resp_ids) + 1):
+                    if ids[j:j+len(self.resp_ids)] == self.resp_ids:
+                        resp_start = j + len(self.resp_ids)
+                        break
+                if resp_start is not None:
+                    labels[i, :resp_start] = -100
+                else:
+                    labels[i] = torch.full_like(label_row, -100)
+            batch["labels"] = labels
+            return batch
+
+    trainer.data_collator = ResponseOnlyCollator(original_collator, response_ids)
+    return trainer
 
 
 # ------------------------------------------------------------------

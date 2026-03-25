@@ -19,6 +19,7 @@ from transformers import (
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
     DataCollatorForSeq2Seq,
+    EarlyStoppingCallback,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
 )
@@ -48,6 +49,7 @@ class Seq2SeqTrainConfig:
     fp16: bool = True
     label_smoothing: float = 0.1
     seed: int = 42
+    early_stopping_patience: int = 0   # 0이면 비활성화, >0이면 Early Stopping 적용
 
 
 @dataclass
@@ -283,6 +285,11 @@ class KoBARTTrainer:
             pad_to_multiple_of=8,
         )
 
+        callbacks = []
+        if t.early_stopping_patience > 0:
+            callbacks.append(EarlyStoppingCallback(early_stopping_patience=t.early_stopping_patience))
+            print(f"      Early Stopping patience={t.early_stopping_patience}")
+
         self.seq2seq_trainer = Seq2SeqTrainer(
             model=self.model,
             args=args,
@@ -291,6 +298,7 @@ class KoBARTTrainer:
             tokenizer=self.tokenizer,
             data_collator=data_collator,
             compute_metrics=self._compute_metrics,
+            callbacks=callbacks if callbacks else None,
         )
 
         self.seq2seq_trainer.train()
