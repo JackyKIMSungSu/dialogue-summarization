@@ -4,9 +4,9 @@ model:
   load_in_4bit: true
 
 lora:
-  r: 16
-  alpha: 16
-  dropout: 0.0
+  r: 32
+  alpha: 64
+  dropout: 0.05
   target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
   bias: "none"
 
@@ -14,7 +14,7 @@ training:
   num_epochs: 3
   batch_size: 1
   grad_accum: 16          # 실효 배치 = 16
-  learning_rate: 0.0002
+  learning_rate: 0.0001
   lr_scheduler: "cosine"
   warmup_ratio: 0.05
   weight_decay: 0.01
@@ -23,7 +23,7 @@ training:
   seed: 42
   response_only: true
   max_new_tokens: 256
-  instruction_part: "### User:\n"
+  instruction_part: "### System:\n"
   response_part: "### Assistant:\n"
 
 data:

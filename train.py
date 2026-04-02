@@ -267,14 +267,20 @@ def run_solar(args):
 
     wandb_logger, notion_logger = init_loggers(args, config, run_name, tags)
 
-    # 데이터 로드
-    train_df = pd.read_csv(args.train_path)
-    dev_df   = pd.read_csv(args.dev_path)
-    test_df  = pd.read_csv(args.test_path)
+    # 데이터 로드 및 전처리
+    from src.data.preprocessor import DialoguePreprocessor
+    preprocessor = DialoguePreprocessor()
+
+    train_df = preprocessor.process(pd.read_csv(args.train_path))
+    dev_df   = preprocessor.process(pd.read_csv(args.dev_path))
+    test_df  = preprocessor.process(pd.read_csv(args.test_path))
     print(f"train: {len(train_df):,}  |  dev: {len(dev_df):,}  |  test: {len(test_df):,}")
 
-    SOLAR_PROMPT = """### User:
-다음 대화를 한국어로 간결하게 요약하세요.
+    SOLAR_PROMPT = """### System:
+당신은 한국어 대화 요약 전문가입니다. 대화에는 #Person1#, #Person2# 등의 화자 태그가 사용됩니다. 요약할 때 이 화자 태그를 그대로 사용하여 누가 무엇을 했는지 명확히 구분해주세요. 핵심 내용만 1~3문장으로 간결하게 요약하세요. 반드시 한국어로 작성하되, CPU·USB 등 고유 영문 약어나 전문 용어는 그대로 사용해도 됩니다.
+
+### User:
+아래 대화를 읽고 핵심 내용을 한국어로 요약해주세요. 화자 태그(#Person1# 등)를 유지하세요.
 
 {dialogue}
 
@@ -295,11 +301,12 @@ def run_solar(args):
         print(f"  {k}: {v}")
 
     if not args.no_submission:
+        import sys
         import torch
-        from unsloth import FastLanguageModel
-        FastLanguageModel.for_inference(trainer.model)
+        from tqdm import tqdm
         predictions = []
-        for dialogue in test_df["dialogue"]:
+        print(f"\n[제출] test 추론 시작 ({len(test_df)}개)", flush=True)
+        for dialogue in tqdm(test_df["dialogue"], desc="test inference"):
             prompt = SOLAR_PROMPT.format(dialogue=dialogue, summary="")
             inputs = trainer.tokenizer(prompt, return_tensors="pt").to("cuda")
             with torch.no_grad():
@@ -314,6 +321,7 @@ def run_solar(args):
             ).strip()
             predictions.append(pred)
         save_submission(predictions, run_name)
+        print(f"[제출] 완료 → {run_name}.csv", flush=True)
 
     if wandb_logger:
         wandb_logger.finish()

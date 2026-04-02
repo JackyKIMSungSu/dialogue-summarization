@@ -132,7 +132,7 @@ class DialogueSummarizationTrainer:
         notion_logger=None,
         wandb_logger=None,
         resume_from_checkpoint: str | None = None,
-    ):
+    ):f
         self.hp = hp
         self.prompt_template = prompt_template or _DEFAULT_PROMPT
         self.notion = notion_logger
@@ -253,8 +253,7 @@ class DialogueSummarizationTrainer:
         return Dataset.from_list(records)
 
     def _train(self, train_dataset):
-        from trl import SFTTrainer
-        from transformers import TrainingArguments, DataCollatorForLanguageModeling
+        from trl import SFTTrainer, SFTConfig
 
         t = self.hp.train
         exp = self.hp.experiment
@@ -263,7 +262,7 @@ class DialogueSummarizationTrainer:
 
         print(f"\n[4/4] 학습 시작 (실효 배치={self.hp.effective_batch_size()}, bf16={use_bf16})")
 
-        training_args = TrainingArguments(
+        training_args = SFTConfig(
             output_dir=output_dir,
             num_train_epochs=t.num_epochs,
             per_device_train_batch_size=t.batch_size,
@@ -277,19 +276,21 @@ class DialogueSummarizationTrainer:
             fp16=not use_bf16,
             seed=t.seed,
             logging_steps=10,
-            save_strategy="epoch",
+            save_strategy="steps",
+            save_steps=200,
+            save_total_limit=2,
             report_to="wandb" if self.wandb else "none",
             run_name=exp.run_name,
             gradient_checkpointing=True,
             optim="paged_adamw_8bit",
+            dataset_text_field="text",
+            max_length=self.hp.model.max_seq_length,
         )
 
         trainer = SFTTrainer(
             model=self.model,
-            tokenizer=self.tokenizer,
+            processing_class=self.tokenizer,
             train_dataset=train_dataset,
-            dataset_text_field="text",
-            max_seq_length=self.hp.model.max_seq_length,
             args=training_args,
         )
 
@@ -310,15 +311,21 @@ class DialogueSummarizationTrainer:
             print(f"      체크포인트에서 재개: {self.resume_from_checkpoint}")
         trainer.train(resume_from_checkpoint=self.resume_from_checkpoint or None)
 
-    def _evaluate(self, dev_df: pd.DataFrame) -> dict:
+    def _evaluate(self, dev_df: pd.DataFrame, eval_samples: int = 500) -> dict:
+        import sys
+        from tqdm import tqdm
         from src.utils.rouge_evaluator import RougeEvaluator
 
-        print("\n[평가] dev 세트 추론 중...")
+        sample_df = dev_df.sample(n=min(eval_samples, len(dev_df)), random_state=42)
+        print(f"\n[평가] dev 세트 추론 중... ({len(sample_df)}/{len(dev_df)}개 샘플)", flush=True)
+        if self.hp.train.bf16:
+            self.model = self.model.to(torch.bfloat16)
         self.model.eval()
 
         predictions = []
-        for dialogue in dev_df["dialogue"]:
-            prompt = self.prompt_template.format(dialogue=dialogue, summary="")
+        refs = []
+        for _, row in tqdm(sample_df.iterrows(), total=len(sample_df), desc="eval"):
+            prompt = self.prompt_template.format(dialogue=row["dialogue"], summary="")
             inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda")
             with torch.no_grad():
                 outputs = self.model.generate(
@@ -332,13 +339,14 @@ class DialogueSummarizationTrainer:
                 skip_special_tokens=True,
             ).strip()
             predictions.append(pred)
+            refs.append(row["summary"])
 
         evaluator = RougeEvaluator()
-        scores = evaluator.score(predictions, dev_df["summary"].tolist())
-        print(f"  ROUGE-1: {scores['rouge1']:.4f}")
-        print(f"  ROUGE-2: {scores['rouge2']:.4f}")
-        print(f"  ROUGE-L: {scores['rougeL']:.4f}")
-        print(f"  Score  : {scores['score']:.4f}")
+        scores = evaluator.score(predictions, refs)
+        print(f"  ROUGE-1: {scores['rouge1']:.4f}", flush=True)
+        print(f"  ROUGE-2: {scores['rouge2']:.4f}", flush=True)
+        print(f"  ROUGE-L: {scores['rougeL']:.4f}", flush=True)
+        print(f"  Score  : {scores['score']:.4f}", flush=True)
         return scores
 
     def _save_checkpoint(self) -> str:
